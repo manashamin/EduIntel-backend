@@ -6,6 +6,7 @@ torch==2.9.0
 transformers==4.41.2
 scikit-learn==1.5.0
 numpy==1.26.4
+PyPDF2==3.0.1
 pytesseract
 pdf2image
 Pillow
