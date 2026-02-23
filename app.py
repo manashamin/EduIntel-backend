@@ -11,7 +11,7 @@ from pdf2image import convert_from_bytes
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
