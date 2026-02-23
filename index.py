@@ -59,7 +59,9 @@ def split_answers(text):
     return cleaned
 
 # ---------------- ANALYZE ROUTE ----------------
-
+@app.route("/")
+def home():
+    return "Backend is running successfully"
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
