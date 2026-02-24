@@ -8,9 +8,12 @@ import pytesseract
 from pdf2image import convert_from_bytes
 
 # ---------------- CONFIG ----------------
+
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 app = Flask(__name__)
+
+# ✅ Enable CORS properly (ONLY ONCE)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -18,10 +21,12 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 # ---------------- TEXT EXTRACTION ----------------
 
 def extract_text(pdf_file):
+
     text = ""
 
     try:
         reader = PyPDF2.PdfReader(pdf_file)
+
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted:
@@ -35,7 +40,9 @@ def extract_text(pdf_file):
 
     # OCR fallback
     print("Switching to OCR...")
+
     pdf_file.seek(0)
+
     images = convert_from_bytes(pdf_file.read())
 
     for image in images:
@@ -44,30 +51,40 @@ def extract_text(pdf_file):
 
     return text
 
+
 # ---------------- SPLIT QUESTIONS ----------------
 
 def split_answers(text):
+
     pattern = r'(?:\bQ?\d+\.)'
+
     parts = re.split(pattern, text)
 
     cleaned = []
+
     for part in parts:
         part = part.strip()
+
         if len(part) > 20:
             cleaned.append(part)
 
     return cleaned
 
-# ---------------- ANALYZE ROUTE ----------------
-CORS(app)
+
+# ---------------- HEALTH CHECK ----------------
 
 @app.route("/")
 def home():
     return "Backend is running successfully"
 
+
+# ---------------- ANALYZE ROUTE ----------------
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
+
     try:
+
         if "teacher" not in request.files:
             return jsonify({"error": "Teacher key not uploaded"}), 400
 
@@ -77,37 +94,56 @@ def analyze():
         if len(student_pdfs) == 0:
             return jsonify({"error": "No student files uploaded"}), 400
 
+
         teacher_text = extract_text(teacher_pdf)
+
         teacher_answers = split_answers(teacher_text)
 
         if len(teacher_answers) == 0:
             return jsonify({"error": "Teacher answers could not be extracted"}), 400
 
+
+        # Encode teacher answers once
+        teacher_embeddings = model.encode(
+            teacher_answers,
+            convert_to_tensor=True
+        )
+
+
         all_results = []
 
-        # Encode teacher answers once (optimization)
-        teacher_embeddings = model.encode(teacher_answers, convert_to_tensor=True)
 
         for student_pdf in student_pdfs:
 
             student_text = extract_text(student_pdf)
+
             student_answers = split_answers(student_text)
+
 
             student_result = {
                 "pdf_name": student_pdf.filename,
                 "questions": [],
-                "performance_score": 0  # renamed
+                "performance_score": 0
             }
+
+
+            if len(student_answers) == 0:
+
+                student_result["performance_score"] = 0
+
+                all_results.append(student_result)
+
+                continue
+
+
+            student_embeddings = model.encode(
+                student_answers,
+                convert_to_tensor=True
+            )
+
 
             similarities = []
 
-            if len(student_answers) == 0:
-                student_result["performance_score"] = 0
-                all_results.append(student_result)
-                continue
-
-            # Encode student answers once
-            student_embeddings = model.encode(student_answers, convert_to_tensor=True)
 
             for i in range(min(len(teacher_answers), len(student_answers))):
 
@@ -116,52 +152,86 @@ def analyze():
                     student_embeddings[i]
                 ).item()
 
+
                 similarity = float(similarity)
 
-                # 🔥 Strong unrelated filter
+
+                # unrelated filter
                 if similarity < 0.20:
                     similarity = 0
 
+
                 similarities.append(similarity)
+
 
                 percent_score = round(similarity * 100, 2)
 
+
                 if percent_score >= 75:
                     status = "Strong Understanding"
+
                 elif percent_score >= 45:
                     status = "Partial Understanding"
+
                 elif percent_score > 0:
                     status = "Weak Understanding"
+
                 else:
                     status = "Not Related"
 
+
                 student_result["questions"].append({
+
                     "question_number": i + 1,
+
                     "similarity_percent": percent_score,
+
                     "status": status
+
                 })
 
+
             if similarities:
-                overall = (sum(similarities) / len(similarities)) * 100
+
+                overall = (
+                    sum(similarities) /
+                    len(similarities)
+                ) * 100
+
             else:
+
                 overall = 0
+
 
             student_result["performance_score"] = round(overall, 2)
 
             all_results.append(student_result)
 
+
         return jsonify({
+
             "success": True,
+
             "data": all_results
+
         })
 
+
     except Exception as e:
+
         print("ERROR:", e)
+
         return jsonify({
+
             "success": False,
+
             "error": str(e)
+
         }), 500
 
+
+
+# ---------------- RUN ----------------
 
 if __name__ == "__main__":
     app.run(debug=True)
